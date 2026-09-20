@@ -1,0 +1,8 @@
+{
+    "AkiyoPOC": {
+        "base_path": "../../../testdata/akiyo_320x256",
+        "sequences": {
+            "akiyo_320x256": {"frames": 16, "gop": 16}
+        }
+    }
+}

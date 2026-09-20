@@ -1,0 +1,20 @@
+{
+  "AkiyoPOC": {
+    "akiyo_320x256": {
+      "model_dcvc_quality_0_psnr.pth": {
+        "i_frame_num": 1,
+        "p_frame_num": 15,
+        "ave_i_frame_bpp": 0.15620040893554688,
+        "ave_i_frame_quality": 32.68891906738281,
+        "ave_p_frame_bpp": 0.007940404210239648,
+        "ave_p_frame_bpp_mv_y": 0.0019336175406351685,
+        "ave_p_frame_bpp_mv_z": 0.0003368255003200223,
+        "ave_p_frame_bpp_y": 0.004781266247543196,
+        "ave_p_frame_bpp_z": 0.0008886947956246635,
+        "ave_p_frame_quality": 31.66141548156738,
+        "ave_all_frame_bpp": 0.01720665450557135,
+        "ave_all_frame_quality": 31.725634455680847
+      }
+    }
+  }
+}

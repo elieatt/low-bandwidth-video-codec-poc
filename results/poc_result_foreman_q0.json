@@ -1,0 +1,20 @@
+{
+  "ForemanPOC": {
+    "foreman_320x256": {
+      "model_dcvc_quality_0_psnr.pth": {
+        "i_frame_num": 1,
+        "p_frame_num": 15,
+        "ave_i_frame_bpp": 0.14451470375061035,
+        "ave_i_frame_quality": 33.08170700073242,
+        "ave_p_frame_bpp": 0.033093312134345375,
+        "ave_p_frame_bpp_mv_y": 0.011293539529045422,
+        "ave_p_frame_bpp_mv_z": 0.0004207800394700219,
+        "ave_p_frame_bpp_y": 0.020090921657780807,
+        "ave_p_frame_bpp_z": 0.0012880711156564454,
+        "ave_p_frame_quality": 31.83333066304525,
+        "ave_all_frame_bpp": 0.040057149110361935,
+        "ave_all_frame_quality": 31.911354184150696
+      }
+    }
+  }
+}

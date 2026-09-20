@@ -1,0 +1,8 @@
+{
+    "ForemanPOC": {
+        "base_path": "../../../testdata/foreman_320x256",
+        "sequences": {
+            "foreman_320x256": {"frames": 16, "gop": 16}
+        }
+    }
+}
