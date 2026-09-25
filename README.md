@@ -1,5 +1,3 @@
-# DCVC and MLVC vs H.264 at low bitrate
-
 A small experiment comparing neural video codecs (DCVC and MLVC) against standard
 H.264 at matched, ultra-low bitrates, to see which one keeps a talking-head video
 watchable when bandwidth is very limited. This repo has the code, data, and exact
