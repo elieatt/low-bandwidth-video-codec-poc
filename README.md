@@ -20,7 +20,7 @@ territory, at the same file size:
 
 ![Akiyo clip: original vs MLVC vs DCVC vs H.264, all at roughly 46 kbps](images/akiyo_comparison_labeled.png)
 
-A single still frame isn't actually enough to judge a video codec fairly: every
+A single still frame isn't enough to judge a video codec fairly: every
 frame here is predicted from the one before it, so quality drifts across a clip in
 a way one frame can hide, and a fraction-of-a-second clip isn't long enough to see
 that drift happen more than once. Here's the full 10-second clip playing, and
@@ -40,11 +40,10 @@ sawtooth. Raw per-frame data for all three codecs is in [`results/`](results)
 (`akiyo_mlvc_per_frame_results.json`, `akiyo_dcvc_per_frame.json`,
 `akiyo_h264_per_frame.json`).
 
-MLVC is a newer codec from the same research lineage as DCVC, built specifically to
-be deployable on real hardware (phone NPUs, CPUs) instead of just a research GPU.
-Averaged across the clip it beats DCVC by 6.2 dB at essentially the same bitrate,
-and both leave H.264 far behind. See
-[MLVC](#mlvc-a-newer-production-oriented-codec) below for how to run it yourself.
+MLVC is a newer codec from the same research lineage as DCVC (more on what makes
+it different [below](#mlvc-a-newer-production-oriented-codec)). Averaged across the
+clip it beats DCVC by 6.2 dB at essentially the same bitrate, and both leave H.264
+far behind.
 
 The DCVC vs H.264 gap holds under real motion too, tested separately on a clip
 with actual head turns and camera movement:
@@ -290,13 +289,13 @@ Raw JSON output for each of these runs is in [`results/`](results).
 - If `ffmpeg` complains `Unrecognized option 'vsync'`, drop that flag. Recent ffmpeg
   builds removed it in favor of `-fps_mode`.
 - If PSNR numbers look wildly wrong, double check the two PNG sequences you're
-  comparing actually have the same framerate assumption. Mismatched `-framerate` on
+  comparing have the same framerate assumption. Mismatched `-framerate` on
   input vs. the source file causes ffmpeg to misalign frames when decoding for
   comparison.
 - The 16-frame, 0.5-second clip length here is short enough that H.264's own bitrate
   controller may not fully settle, especially at higher target bitrates. Treat the
   H.264 numbers at 91/136 kbps as a bit conservative, not a hard ceiling.
-- This tests against plain H.264, which is what WhatsApp actually uses for video
+- This tests against plain H.264, which is what WhatsApp uses for video
   calls. Other apps use more, e.g. Google Meet runs VP9 with SVC, which is already
   meaningfully more efficient than H.264 on its own. A VP9 baseline isn't included
   here yet, so treat the H.264 numbers as representative of WhatsApp specifically,
@@ -305,9 +304,8 @@ Raw JSON output for each of these runs is in [`results/`](results).
 ## MLVC: a newer, production-oriented codec
 
 [MLVC](https://github.com/microsoft/mlvc) is a newer neural video codec Microsoft
-released in 2026, built specifically to solve the problem DCVC doesn't: actually
-running on real hardware (phone NPUs, CPUs) with a production entropy coder, not
-just proving an idea works in a research setting.
+released in 2026, built to run on real hardware (phone NPUs, CPUs) with a
+production entropy coder, rather than a research-only setup like DCVC's.
 
 ```bash
 git clone https://github.com/microsoft/mlvc.git
@@ -315,7 +313,7 @@ cd mlvc
 uv sync --extra onnxruntime   # CPU backend
 ```
 
-To produce real bitstreams (not just entropy estimates) you need its C++ entropy
+To produce real bitstreams (real compressed bytes, not an estimate) you need its C++ entropy
 coder built, which needs a C++ compiler:
 
 ```bash
@@ -346,11 +344,11 @@ uv run python run_mlvc.py \
 ```
 
 `--q-index` ranges 0 to 63 (higher = more bitrate/quality). The right value to hit a
-given target bitrate depends heavily on your content and clip length, not just a
+given target bitrate depends heavily on your content and clip length. It's not a
 fixed lookup: on the 16-frame snippet used during early testing, `q_index=21` landed
 at ~38 kbps, but on the full 300-frame clip (long, mostly-static content compresses
 much better on average) that same `q_index=21` dropped to just 9.2 kbps. `q_index=50`
-is what actually landed at ~46 kbps on the full clip. Try a few values and check the
+is what landed at ~46 kbps on the full clip. Try a few values and check the
 `kbps` it reports rather than assuming a number that worked on a different clip.
 
 On the full 300-frame Akiyo clip, at a closely matched ~46 kbps: MLVC scored 37.9 dB,
@@ -359,15 +357,15 @@ per-quality-preset results (on the earlier short snippet) are in
 [`results/akiyo_mlvc_results.json`](results/akiyo_mlvc_results.json) and full-clip
 per-frame data in [`results/akiyo_mlvc_per_frame_results.json`](results/akiyo_mlvc_per_frame_results.json).
 
-**A real gotcha worth knowing about:** on Windows, `scipy` (an MLVC dependency)
-failed to import with `DLL load failed... An Application Control policy has
-blocked this file`. That's Windows 11's Smart App Control, which blocks unsigned
-or unrecognized binaries, including normal PyPI wheels with compiled extensions.
-If you hit this, check `HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy` for
+**Gotcha:** on Windows, `scipy` (an MLVC dependency) failed to import with
+`DLL load failed... An Application Control policy has blocked this file`. That's
+Windows 11's Smart App Control, which blocks unsigned or unrecognized binaries,
+including normal PyPI wheels with compiled extensions. If you hit this, check
+`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy` for
 `VerifiedAndReputablePolicyState`. Once Smart App Control is in Enforce mode (`1`),
 Microsoft only supports turning it off via a full Windows reset, there's no
-per-app exception. This is a real, current limitation of running ML tooling on a
-locked-down Windows machine, not a bug in MLVC itself.
+per-app exception. Not a bug in MLVC, just what a locked-down Windows machine does
+to ML tooling.
 
 ## Going further: DCVC-RT (not covered above)
 
@@ -376,7 +374,7 @@ lives in the same repo under `DCVC-family/DCVC-RT`, but its `--write_stream` fla
 mandatory (the script asserts on it), which means it needs a compiled C++ extension
 for the actual entropy/bitstream code. You'll need `cmake`, `ninja`, and a C++
 compiler (MSVC on Windows, or `build-essential` on Linux) to build it, plus ideally an
-NVIDIA/CUDA GPU to actually see its speed advantage. This was skipped for this POC
+NVIDIA/CUDA GPU to see its speed advantage. This was skipped for this POC
 specifically because none of those were available.
 
 ## License
