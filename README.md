@@ -20,10 +20,28 @@ size:
 
 ![Akiyo clip: original vs MLVC vs DCVC vs H.264, all at roughly 40 kbps](images/akiyo_comparison_labeled.png)
 
+A single still frame isn't actually enough to judge a video codec fairly: every
+frame here is predicted from the one before it, so quality drifts across a clip in
+a way one frame can hide. Here's the same 16-frame clip playing, and quality
+plotted frame by frame instead of just eyeballed at one point in time:
+
+<video src="videos/akiyo_comparison.mp4" controls width="600"></video>
+
+![Per-frame PSNR across the 16-frame clip](images/akiyo_per_frame_psnr.png)
+
+One honest nuance the still frame hides: MLVC actually starts *behind* DCVC on the
+very first frame (27.1 dB vs 32.7 dB), since that frame is intra-coded and DCVC's
+keyframe compressor happens to be stronger here. MLVC overtakes by frame 5 and
+stays ahead for the rest of the clip, so its advantage comes from stronger
+frame-to-frame prediction, not better keyframes. Raw per-frame data for all three
+codecs is in [`results/`](results) (`akiyo_mlvc_per_frame_results.json`,
+`akiyo_dcvc_per_frame.json`, `akiyo_h264_per_frame.json`).
+
 MLVC is a newer codec from the same research lineage as DCVC, built specifically to
 be deployable on real hardware (phone NPUs, CPUs) instead of just a research GPU.
-It edges out DCVC while using less bitrate, and both leave H.264 far behind. See
-[MLVC](#mlvc-a-newer-production-oriented-codec) below for how to run it yourself.
+Averaged across the clip it edges out DCVC while using less bitrate, and both
+leave H.264 far behind. See [MLVC](#mlvc-a-newer-production-oriented-codec) below
+for how to run it yourself.
 
 The DCVC vs H.264 gap holds under real motion too, tested separately on a clip
 with actual head turns and camera movement:
