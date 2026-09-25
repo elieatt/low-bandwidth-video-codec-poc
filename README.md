@@ -1,21 +1,32 @@
 # Faces at 42 kbps
 
-A small experiment comparing a neural video codec (DCVC) against standard H.264 at
-matched, ultra-low bitrates, to see which one keeps a talking-head video watchable
-when bandwidth is very limited. This repo has the code, data, and exact steps to
-reproduce it yourself.
+A small experiment comparing neural video codecs (DCVC and MLVC) against standard
+H.264 at matched, ultra-low bitrates, to see which one keeps a talking-head video
+watchable when bandwidth is very limited. This repo has the code, data, and exact
+steps to reproduce it yourself.
 
-No GPU required. Everything below runs on CPU. It's slow (~5.5 sec/frame) but correct.
+No GPU required. Everything below runs on CPU. It's slow but correct.
 
 ## Result
 
-At 42 kbps, roughly bad-connection territory, DCVC scored 31.7 dB PSNR against
-H.264's 23.6 dB on the same clip at the same file size.
+At roughly 40 kbps, bad-connection territory, on the same clip at the same file
+size:
 
-![Akiyo clip: original vs DCVC vs H.264 at 42 kbps](images/akiyo_comparison.png)
+| Codec | Bitrate | PSNR |
+|---|---|---|
+| H.264 | 41 kbps | 23.6 dB |
+| DCVC (2021) | 42 kbps | 31.7 dB |
+| MLVC (2026) | 38 kbps | 32.4 dB |
 
-The gap holds under real motion too, tested separately on a clip with actual head
-turns and camera movement:
+![Akiyo clip: original vs MLVC vs DCVC vs H.264, all at roughly 40 kbps](images/akiyo_comparison_labeled.png)
+
+MLVC is a newer codec from the same research lineage as DCVC, built specifically to
+be deployable on real hardware (phone NPUs, CPUs) instead of just a research GPU.
+It edges out DCVC while using less bitrate, and both leave H.264 far behind. See
+[MLVC](#mlvc-a-newer-production-oriented-codec) below for how to run it yourself.
+
+The DCVC vs H.264 gap holds under real motion too, tested separately on a clip
+with actual head turns and camera movement:
 
 ![Foreman clip: original vs DCVC vs H.264 at 97 kbps](images/foreman_comparison.png)
 
@@ -249,6 +260,50 @@ Raw JSON output for each of these runs is in [`results/`](results).
   meaningfully more efficient than H.264 on its own. A VP9 baseline isn't included
   here yet, so treat the H.264 numbers as representative of WhatsApp specifically,
   not of every video call app.
+
+## MLVC: a newer, production-oriented codec
+
+[MLVC](https://github.com/microsoft/mlvc) is a newer neural video codec Microsoft
+released in 2026, built specifically to solve the problem DCVC doesn't: actually
+running on real hardware (phone NPUs, CPUs) with a production entropy coder, not
+just proving an idea works in a research setting.
+
+```bash
+git clone https://github.com/microsoft/mlvc.git
+cd mlvc
+uv sync --extra onnxruntime   # CPU backend
+```
+
+To produce real bitstreams (not just entropy estimates) you need its C++ entropy
+coder built, which needs a C++ compiler:
+
+```bash
+# on Windows, from a shell with vcvars64.bat sourced (MSVC installed via
+# Visual Studio Build Tools, "Desktop development with C++" workload):
+uv pip install packages/msrtc_rans
+```
+
+Download a checkpoint (MLVC or the smaller MLVC-S, both PSNR or perceptual
+objective) from the URLs in the [MLVC README](https://github.com/microsoft/mlvc#models),
+verify its SHA-256 against the hash listed there, and adapt
+[`video/notebooks/demo.ipynb`](https://github.com/microsoft/mlvc/blob/main/video/notebooks/demo.ipynb)
+to point at your own raw YUV420 video instead of the bundled validation set. The
+notebook's `MlVideoCodec` class is a clean, minimal encode/decode loop, worth
+reading even if you don't run the notebook itself.
+
+On the same Akiyo clip, at a closely matched ~38-42 kbps: MLVC scored 32.4 dB,
+edging out DCVC's 31.7 dB while using less bitrate. Full per-quality-preset results
+are in [`results/akiyo_mlvc_results.json`](results/akiyo_mlvc_results.json).
+
+**A real gotcha worth knowing about:** on Windows, `scipy` (an MLVC dependency)
+failed to import with `DLL load failed... An Application Control policy has
+blocked this file`. That's Windows 11's Smart App Control, which blocks unsigned
+or unrecognized binaries, including normal PyPI wheels with compiled extensions.
+If you hit this, check `HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy` for
+`VerifiedAndReputablePolicyState`. Once Smart App Control is in Enforce mode (`1`),
+Microsoft only supports turning it off via a full Windows reset, there's no
+per-app exception. This is a real, current limitation of running ML tooling on a
+locked-down Windows machine, not a bug in MLVC itself.
 
 ## Going further: DCVC-RT (not covered above)
 
