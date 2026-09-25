@@ -229,25 +229,53 @@ ffmpeg -i akiyo_h264_42k.mp4 -pix_fmt rgb24 h264_recon_42k/im%05d.png
 
 DCVC's own PSNR is computed on RGB pixels, normalized 0 to 1. That is not the same as
 ffmpeg's built-in `psnr` filter, which works in YUV per-plane and will give you a
-different, non-comparable number. Use [`compute_psnr.py`](compute_psnr.py) instead:
+different, non-comparable number. Use [`scripts/compute_psnr.py`](scripts/compute_psnr.py)
+for a quick average, or [`scripts/compute_per_frame_psnr.py`](scripts/compute_per_frame_psnr.py)
+if you want the full per-frame breakdown (needed to see quality drift across a clip,
+see [Result](#result) above for why that matters):
 
 ```bash
-python compute_psnr.py testdata/akiyo_320x256/akiyo_320x256 h264_recon_42k 16
+# quick average only
+python scripts/compute_psnr.py testdata/akiyo_320x256/akiyo_320x256 h264_recon_42k 16
+
+# full per-frame data as JSON (handles DCVC's unpadded 0-indexed recon_frame_N.png
+# naming vs ffmpeg's zero-padded 1-indexed imNNNNN.png naming via --orig-start/--recon-start)
+python scripts/compute_per_frame_psnr.py \
+  --orig-dir testdata/akiyo_320x256/akiyo_320x256 --orig-pattern "im{i:05d}.png" --orig-start 1 \
+  --recon-dir h264_recon_42k --recon-pattern "im{i:05d}.png" --recon-start 1 \
+  --num-frames 16 --out h264_per_frame.json
 ```
 
-## 9. Build a side-by-side comparison image (optional, for visual sanity-checking)
+## 9. Build a side-by-side comparison image and video
 
-```python
-from PIL import Image
-orig = Image.open("testdata/akiyo_320x256/akiyo_320x256/im00016.png").convert("RGB")
-dcvc = Image.open("DCVC/DCVC-family/DCVC/poc_recon_q0/akiyo_320x256/model_dcvc_quality_0_psnr/recon_frame_15.png").convert("RGB")
-h264 = Image.open("h264_recon_42k/im00016.png").convert("RGB")
-w, h = orig.size
-combo = Image.new("RGB", (w * 3 + 20, h + 30), "white")
-combo.paste(orig, (0, 30))
-combo.paste(dcvc, (w + 10, 30))
-combo.paste(h264, (2 * w + 20, 30))
-combo.save("comparison.png")
+[`scripts/build_comparison_image.py`](scripts/build_comparison_image.py) composes any
+number of PNGs side by side with labels:
+
+```bash
+python scripts/build_comparison_image.py \
+  --panel "Original" "" testdata/akiyo_320x256/akiyo_320x256/im00016.png \
+  --panel "DCVC" "31.7 dB, 42 kbps" DCVC/DCVC-family/DCVC/poc_recon_q0/akiyo_320x256/model_dcvc_quality_0_psnr/recon_frame_15.png \
+  --panel "H.264" "23.6 dB, 41 kbps" h264_recon_42k/im00016.png \
+  --out comparison.png
+```
+
+For an actual playable comparison video (recommended, a still frame can't show the
+quality drift covered in [Result](#result)), turn each codec's full frame sequence
+into its own short video, label each with `drawtext`, then stack them side by side:
+
+```bash
+# one short mp4 per source (repeat for each codec's own recon frame sequence)
+ffmpeg -framerate 29.97 -i testdata/akiyo_320x256/akiyo_320x256/im%05d.png \
+  -pix_fmt yuv420p -c:v libx264 -crf 15 orig.mp4
+
+# then, with a TTF font file (e.g. arial.ttf) copied next to your working directory
+# to sidestep ffmpeg treating a Windows drive-letter colon as a filter separator:
+ffmpeg -i orig.mp4 -i dcvc.mp4 -i h264.mp4 -filter_complex "
+[0:v]drawtext=fontfile=arial.ttf:text='Original':x=8:y=8:fontsize=16:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=4[v0];
+[1:v]drawtext=fontfile=arial.ttf:text='DCVC (31.7dB, 42kbps)':x=8:y=8:fontsize=16:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=4[v1];
+[2:v]drawtext=fontfile=arial.ttf:text='H.264 (23.6dB, 41kbps)':x=8:y=8:fontsize=16:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=4[v2];
+[v0][v1][v2]hstack=inputs=3
+" -c:v libx264 -crf 18 -pix_fmt yuv420p side_by_side.mp4
 ```
 
 ## Results we got, for reference
@@ -303,15 +331,33 @@ uv pip install packages/msrtc_rans
 
 Download a checkpoint (MLVC or the smaller MLVC-S, both PSNR or perceptual
 objective) from the URLs in the [MLVC README](https://github.com/microsoft/mlvc#models),
-verify its SHA-256 against the hash listed there, and adapt
+and verify its SHA-256 against the hash listed there.
+
+[`scripts/run_mlvc.py`](scripts/run_mlvc.py) is the actual script used to produce
+every MLVC number in this repo, adapted from MLVC's own
 [`video/notebooks/demo.ipynb`](https://github.com/microsoft/mlvc/blob/main/video/notebooks/demo.ipynb)
-to point at your own raw YUV420 video instead of the bundled validation set. The
-notebook's `MlVideoCodec` class is a clean, minimal encode/decode loop, worth
-reading even if you don't run the notebook itself.
+into a plain CLI. Copy it into the mlvc repo's `video/` directory (it imports MLVC's
+own `src` package, so it needs to live there or have that directory on `PYTHONPATH`),
+convert your clip to raw YUV420 first (`ffmpeg -i clip.mp4 -pix_fmt yuv420p -f rawvideo clip.yuv`),
+then run:
+
+```bash
+uv run python run_mlvc.py \
+  --checkpoint /path/to/mlvc-psnr-v1.ckpt \
+  --video /path/to/akiyo_320x256.yuv \
+  --width 320 --height 256 --fps 29.97 \
+  --q-index 21 \
+  --out-dir ./out --save-frames
+```
+
+`--q-index` ranges 0 to 63 (higher = more bitrate/quality); 21 landed closest to
+DCVC's ~42 kbps on this clip, but the right value depends on your content, try a
+few and check the `kbps` it reports.
 
 On the same Akiyo clip, at a closely matched ~38-42 kbps: MLVC scored 32.4 dB,
 edging out DCVC's 31.7 dB while using less bitrate. Full per-quality-preset results
-are in [`results/akiyo_mlvc_results.json`](results/akiyo_mlvc_results.json).
+are in [`results/akiyo_mlvc_results.json`](results/akiyo_mlvc_results.json) and
+per-frame data in [`results/akiyo_mlvc_per_frame_results.json`](results/akiyo_mlvc_per_frame_results.json).
 
 **A real gotcha worth knowing about:** on Windows, `scipy` (an MLVC dependency)
 failed to import with `DLL load failed... An Application Control policy has
