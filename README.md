@@ -141,91 +141,67 @@ ffmpeg -i foreman_cif.y4m -vframes 16 -vf "crop=320:256:16:16" \
   testdata/foreman_320x256/foreman_320x256/im%05d.png
 ```
 
-## 5. Write the dataset config
+## 5. Run DCVC (once per quality preset)
 
-DCVC's test script wants a JSON manifest. Save as `poc_dataset_config.json` inside the
-`DCVC/DCVC-family/DCVC` directory (adjust `base_path` to wherever your `testdata` folder
-actually is, relative to that directory). A copy of the exact configs used here is in
-[`results/`](results).
-
-```json
-{
-    "AkiyoPOC": {
-        "base_path": "../../../testdata/akiyo_320x256",
-        "sequences": {
-            "akiyo_320x256": {"frames": 16, "gop": 16}
-        }
-    }
-}
-```
-
-Make a second one, `poc_dataset_config_foreman.json`, pointing at `foreman_320x256`
-the same way.
-
-## 6. Run DCVC (once per quality preset)
+[`scripts/run_dcvc.py`](scripts/run_dcvc.py) wraps DCVC's own `test_video.py`: it
+writes the dataset config JSON for you (DCVC's own manifest format, a copy of the
+exact configs used here is still in [`results/`](results) if you want to see it) and
+maps quality preset to the right checkpoint pair automatically.
 
 ```bash
-python test_video.py \
-  --i_frame_model_name cheng2020-anchor \
-  --i_frame_model_path checkpoints/cheng2020-anchor-3-e49be189.pth.tar \
-  --test_config poc_dataset_config.json \
-  --cuda false --worker 1 \
-  --output_json_result_path poc_result_q0.json \
-  --model_type psnr \
-  --recon_bin_path poc_recon_q0 \
-  --write_recon_frame true --write_stream false \
-  --model_path checkpoints/model_dcvc_quality_0_psnr.pth
+python scripts/run_dcvc.py \
+  --dcvc-dir DCVC/DCVC-family/DCVC \
+  --frames-dir testdata/akiyo_320x256 \
+  --sequence-name akiyo_320x256 \
+  --num-frames 16 --gop 16 \
+  --quality 0 \
+  --out-prefix akiyo_q0
 ```
 
-Repeat for quality 1, 2, 3. Swap the `--i_frame_model_path` and `--model_path` per the
-table above, and change the output/recon folder names so they don't overwrite each
-other (`poc_result_q1.json`, `poc_recon_q1`, etc.).
+Repeat with `--quality 1`, `2`, `3` (using a different `--out-prefix` each time so
+outputs don't overwrite each other) to get the full rate-distortion curve. Each run
+takes roughly 90 seconds on a laptop CPU for 16 frames, deterministic since there's no
+randomness in inference, run it twice and you'll get the exact same bpp/PSNR.
 
-`--write_stream false` skips writing an actual compressed bitstream to disk (which
-needs a compiled C++ extension you'd otherwise have to build) and instead reports the
-*entropy-estimated* bits-per-pixel, the standard way these models are evaluated in
-research, and what the numbers below are built from. `--write_recon_frame true` saves
-the actual rebuilt PNG frames so you can look at them, at
-`poc_recon_q0/akiyo_320x256/model_dcvc_quality_0_psnr/recon_frame_*.png`.
-
-Each run takes roughly 90 seconds on a laptop CPU for 16 frames. Read the resulting
-`poc_result_q*.json`. The field you want is `ave_all_frame_bpp` (bits per pixel) and
-`ave_all_frame_quality` (PSNR in dB).
-
-To convert bpp to kbps for a given resolution/framerate:
+The script prints the resulting PSNR (dB) and bits-per-pixel, and tells you where the
+reconstructed PNG frames and full result JSON landed. To convert bpp to kbps for a
+given resolution/framerate:
 ```
 kbps = bpp * width * height * fps / 1000
 ```
 (320 x 256 x 29.97fps, in our case.)
 
-Run the same command against `poc_dataset_config_foreman.json` (with `quality 0`) to
-get the motion-clip comparison point.
+Run the same command against a `--frames-dir` pointing at `foreman_320x256` (with
+`--quality 0`) to get the motion-clip comparison point.
 
-## 7. Build the matched H.264 baseline
+## 6. Build the matched H.264 baseline
 
-For each DCVC result, encode the same PNG frames with H.264 at the same bitrate DCVC
-used (take the kbps number from step 6):
+[`scripts/run_h264_baseline.py`](scripts/run_h264_baseline.py) encodes the same PNG
+frames with H.264 at a target bitrate, decodes them back, and prints the *actual*
+achieved bitrate (take the kbps number from step 5 as your target):
 
 ```bash
-ffmpeg -framerate 29.97 -i testdata/akiyo_320x256/akiyo_320x256/im%05d.png \
-  -c:v libx264 -x264-params "nal-hrd=cbr" \
-  -b:v 42k -minrate 42k -maxrate 42k -bufsize 10k -g 16 -pix_fmt yuv420p \
-  akiyo_h264_42k.mp4
+python scripts/run_h264_baseline.py \
+  --frames-glob "testdata/akiyo_320x256/akiyo_320x256/im%05d.png" \
+  --fps 29.97 --gop 16 \
+  --target-kbps 42 --bufsize-kbps 10 \
+  --out-video akiyo_h264_42k.mp4 \
+  --recon-dir h264_recon_42k
 ```
 
-Check ffmpeg's own log line `kb/s: ...` to see the actual achieved bitrate. It won't
-match your target exactly, use the real one for a fair comparison. Also note this is
-the encoder's own bitrate for the picture data only. Don't use `ffprobe`'s file-level
-`bit_rate` on a clip this short, fixed container overhead (the MP4 `moov` atom etc.)
-dominates the numbers on a sub-second file and will overstate the real bitrate.
+Use the actual achieved bitrate it prints, not your `--target-kbps`, when comparing
+PSNR at "matched bitrate", x264's own rate control won't hit the target exactly,
+especially on a clip this short. Note this is the encoder's own bitrate for the
+picture data only. Don't separately check `ffprobe`'s file-level `bit_rate` on a clip
+this short, fixed container overhead (the MP4 `moov` atom etc.) dominates the numbers
+on a sub-second file and will overstate the real bitrate.
 
-Decode it back to PNGs:
-```bash
-mkdir h264_recon_42k
-ffmpeg -i akiyo_h264_42k.mp4 -pix_fmt rgb24 h264_recon_42k/im%05d.png
-```
+One more short-clip quirk: x264's multithreaded rate control isn't perfectly
+deterministic, re-running the exact same command can land a percent or two off from
+a previous run (we saw 41.06 kbps and 40.11 kbps across two runs of the identical
+42 kbps target). Not a bug, just don't expect bit-identical output run to run.
 
-## 8. Measure PSNR (apples-to-apples with DCVC's own metric)
+## 7. Measure PSNR (apples-to-apples with DCVC's own metric)
 
 DCVC's own PSNR is computed on RGB pixels, normalized 0 to 1. That is not the same as
 ffmpeg's built-in `psnr` filter, which works in YUV per-plane and will give you a
@@ -246,7 +222,7 @@ python scripts/compute_per_frame_psnr.py \
   --num-frames 16 --out h264_per_frame.json
 ```
 
-## 9. Build a side-by-side comparison image and video
+## 8. Build a side-by-side comparison image and video
 
 [`scripts/build_comparison_image.py`](scripts/build_comparison_image.py) composes any
 number of PNGs side by side with labels:
@@ -381,5 +357,6 @@ specifically because none of those were available.
 
 ## License
 
-Code in this repo (`compute_psnr.py`, configs) is provided as-is for reproducing the
-experiment above. DCVC itself is Microsoft's, under its own license in that repo.
+Code in this repo (`scripts/`, configs) is provided as-is for reproducing the
+experiment above. DCVC and MLVC are Microsoft's, under their own licenses in
+their own repos.
