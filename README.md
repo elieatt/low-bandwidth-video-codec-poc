@@ -9,39 +9,42 @@ No GPU required. Everything below runs on CPU. It's slow but correct.
 
 ## Result
 
-At roughly 40 kbps, bad-connection territory, on the same clip at the same file
-size:
+On a full 10-second clip (300 frames), matched to roughly 46 kbps, bad-connection
+territory, at the same file size:
 
 | Codec | Bitrate | PSNR |
 |---|---|---|
-| H.264 | 41 kbps | 23.6 dB |
-| DCVC (2021) | 42 kbps | 31.7 dB |
-| MLVC (2026) | 38 kbps | 32.4 dB |
+| H.264 | 45.8 kbps | 29.4 dB |
+| DCVC (2021) | 46.6 kbps | 31.7 dB |
+| MLVC (2026) | 46.0 kbps | 37.9 dB |
 
-![Akiyo clip: original vs MLVC vs DCVC vs H.264, all at roughly 40 kbps](images/akiyo_comparison_labeled.png)
+![Akiyo clip: original vs MLVC vs DCVC vs H.264, all at roughly 46 kbps](images/akiyo_comparison_labeled.png)
 
 A single still frame isn't actually enough to judge a video codec fairly: every
 frame here is predicted from the one before it, so quality drifts across a clip in
-a way one frame can hide. Here's the same 16-frame clip playing, and quality
-plotted frame by frame instead of just eyeballed at one point in time:
+a way one frame can hide, and a fraction-of-a-second clip isn't long enough to see
+that drift happen more than once. Here's the full 10-second clip playing, and
+quality plotted frame by frame across all 300 frames instead of eyeballed at one
+point in time:
 
 <video src="videos/akiyo_comparison.mp4" controls width="600"></video>
 
-![Per-frame PSNR across the 16-frame clip](images/akiyo_per_frame_psnr.png)
+![Per-frame PSNR across the full 300-frame clip](images/akiyo_per_frame_psnr.png)
 
-One honest nuance the still frame hides: MLVC actually starts *behind* DCVC on the
-very first frame (27.1 dB vs 32.7 dB), since that frame is intra-coded and DCVC's
-keyframe compressor happens to be stronger here. MLVC overtakes by frame 5 and
-stays ahead for the rest of the clip, so its advantage comes from stronger
-frame-to-frame prediction, not better keyframes. Raw per-frame data for all three
-codecs is in [`results/`](results) (`akiyo_mlvc_per_frame_results.json`,
-`akiyo_dcvc_per_frame.json`, `akiyo_h264_per_frame.json`).
+The chart shows something a single frame or a 16-frame snippet can't: DCVC's
+quality visibly saws up and down on a strict 16-frame cycle (its GOP length),
+climbing right after each keyframe and drifting back down until the next one, for
+all ~19 cycles in the clip. H.264 stays consistently lowest without that same sharp
+pattern. MLVC stays highest and comparatively flat the entire time, no repeating
+sawtooth. Raw per-frame data for all three codecs is in [`results/`](results)
+(`akiyo_mlvc_per_frame_results.json`, `akiyo_dcvc_per_frame.json`,
+`akiyo_h264_per_frame.json`).
 
 MLVC is a newer codec from the same research lineage as DCVC, built specifically to
 be deployable on real hardware (phone NPUs, CPUs) instead of just a research GPU.
-Averaged across the clip it edges out DCVC while using less bitrate, and both
-leave H.264 far behind. See [MLVC](#mlvc-a-newer-production-oriented-codec) below
-for how to run it yourself.
+Averaged across the clip it beats DCVC by 6.2 dB at essentially the same bitrate,
+and both leave H.264 far behind. See
+[MLVC](#mlvc-a-newer-production-oriented-codec) below for how to run it yourself.
 
 The DCVC vs H.264 gap holds under real motion too, tested separately on a clip
 with actual head turns and camera movement:
@@ -128,12 +131,16 @@ curl -o foreman_cif.y4m https://media.xiph.org/video/derf/y4m/foreman_cif.y4m
 ```
 
 DCVC requires frame dimensions to be a multiple of 64, so crop 352x288 down to
-320x256 and extract 16 frames as PNGs (place these *outside* the DCVC repo, e.g. a
+320x256. The main result in this repo uses the full clip, 300 frames (Akiyo is
+10.01 seconds at 29.97fps); an earlier, shorter pass used just 16 frames (0.5s)
+before it became clear that's too short to see quality drift over time, see
+[Result](#result) above. Extract as many frames as your source has, up to
+`-vframes 300` for the full Akiyo clip (place these *outside* the DCVC repo, e.g. a
 sibling `testdata/` folder):
 
 ```bash
 mkdir -p testdata/akiyo_320x256/akiyo_320x256
-ffmpeg -i akiyo_cif.y4m -vframes 16 -vf "crop=320:256:16:16" \
+ffmpeg -i akiyo_cif.y4m -vframes 300 -vf "crop=320:256:16:16" \
   testdata/akiyo_320x256/akiyo_320x256/im%05d.png
 
 mkdir -p testdata/foreman_320x256/foreman_320x256
@@ -153,15 +160,16 @@ python scripts/run_dcvc.py \
   --dcvc-dir DCVC/DCVC-family/DCVC \
   --frames-dir testdata/akiyo_320x256 \
   --sequence-name akiyo_320x256 \
-  --num-frames 16 --gop 16 \
+  --num-frames 300 --gop 16 \
   --quality 0 \
   --out-prefix akiyo_q0
 ```
 
 Repeat with `--quality 1`, `2`, `3` (using a different `--out-prefix` each time so
-outputs don't overwrite each other) to get the full rate-distortion curve. Each run
-takes roughly 90 seconds on a laptop CPU for 16 frames, deterministic since there's no
-randomness in inference, run it twice and you'll get the exact same bpp/PSNR.
+outputs don't overwrite each other) to get the full rate-distortion curve. On a
+laptop CPU, expect roughly 90 seconds for 16 frames or ~18 minutes for the full
+300-frame clip. It's deterministic since there's no randomness in inference, run it
+twice and you'll get the exact same bpp/PSNR.
 
 The script prints the resulting PSNR (dB) and bits-per-pixel, and tells you where the
 reconstructed PNG frames and full result JSON landed. To convert bpp to kbps for a
@@ -256,13 +264,24 @@ ffmpeg -i orig.mp4 -i dcvc.mp4 -i h264.mp4 -filter_complex "
 
 ## Results we got, for reference
 
+Full 300-frame clip, all three codecs, matched bitrate (the headline result above):
+
+| Codec | Bitrate | PSNR |
+|---|---|---|
+| H.264 | 45.8 kbps | 29.4 dB |
+| DCVC | 46.6 kbps | 31.7 dB |
+| MLVC | 46.0 kbps | 37.9 dB |
+
+DCVC's rate-distortion curve (DCVC vs H.264 only), from an earlier pass on a shorter
+16-frame snippet, before the full-clip run above replaced it as the headline result:
+
 | Bitrate | DCVC PSNR | H.264 PSNR |
 |---|---|---|
 | 42 kbps | 31.7 dB | 23.6 dB |
 | 65 kbps | 34.6 dB | 26.8 dB |
 | 91 kbps | 36.0 dB | 27.4 dB |
 | 136 kbps | 37.0 dB | 27.3 dB |
-| 97 kbps (Foreman, motion) | 31.9 dB | 27.4 dB |
+| 97 kbps (Foreman, motion, 16 frames) | 31.9 dB | 27.4 dB |
 
 Raw JSON output for each of these runs is in [`results/`](results).
 
@@ -320,19 +339,24 @@ then run:
 ```bash
 uv run python run_mlvc.py \
   --checkpoint /path/to/mlvc-psnr-v1.ckpt \
-  --video /path/to/akiyo_320x256.yuv \
+  --video /path/to/akiyo_320x256_long.yuv \
   --width 320 --height 256 --fps 29.97 \
-  --q-index 21 \
+  --q-index 50 \
   --out-dir ./out --save-frames
 ```
 
-`--q-index` ranges 0 to 63 (higher = more bitrate/quality); 21 landed closest to
-DCVC's ~42 kbps on this clip, but the right value depends on your content, try a
-few and check the `kbps` it reports.
+`--q-index` ranges 0 to 63 (higher = more bitrate/quality). The right value to hit a
+given target bitrate depends heavily on your content and clip length, not just a
+fixed lookup: on the 16-frame snippet used during early testing, `q_index=21` landed
+at ~38 kbps, but on the full 300-frame clip (long, mostly-static content compresses
+much better on average) that same `q_index=21` dropped to just 9.2 kbps. `q_index=50`
+is what actually landed at ~46 kbps on the full clip. Try a few values and check the
+`kbps` it reports rather than assuming a number that worked on a different clip.
 
-On the same Akiyo clip, at a closely matched ~38-42 kbps: MLVC scored 32.4 dB,
-edging out DCVC's 31.7 dB while using less bitrate. Full per-quality-preset results
-are in [`results/akiyo_mlvc_results.json`](results/akiyo_mlvc_results.json) and
+On the full 300-frame Akiyo clip, at a closely matched ~46 kbps: MLVC scored 37.9 dB,
+beating DCVC's 31.7 dB by 6.2 dB while using slightly less bitrate. Full
+per-quality-preset results (on the earlier short snippet) are in
+[`results/akiyo_mlvc_results.json`](results/akiyo_mlvc_results.json) and full-clip
 per-frame data in [`results/akiyo_mlvc_per_frame_results.json`](results/akiyo_mlvc_per_frame_results.json).
 
 **A real gotcha worth knowing about:** on Windows, `scipy` (an MLVC dependency)

@@ -1,0 +1,20 @@
+{
+  "akiyo_long_q0": {
+    "akiyo_320x256_long": {
+      "model_dcvc_quality_0_psnr.pth": {
+        "i_frame_num": 19,
+        "p_frame_num": 281,
+        "ave_i_frame_bpp": 0.15332935421090377,
+        "ave_i_frame_quality": 32.788964924059414,
+        "ave_p_frame_bpp": 0.009909400363449419,
+        "ave_p_frame_bpp_mv_y": 0.0025750579261900426,
+        "ave_p_frame_bpp_mv_z": 0.0003437419025081598,
+        "ave_p_frame_bpp_y": 0.0060524554513858835,
+        "ave_p_frame_bpp_z": 0.0009381450160433044,
+        "ave_p_frame_quality": 31.651020579490798,
+        "ave_all_frame_bpp": 0.018992664107121526,
+        "ave_all_frame_quality": 31.723090387980143
+      }
+    }
+  }
+}
